@@ -1,6 +1,8 @@
 
 FROM golang:1.24-alpine3.20 AS builder
 
+RUN apk update && apk upgrade
+
 RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /src
@@ -13,7 +15,7 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-w -s" -a -installsuffix cgo \
-    -o /out/server-monitoring ./...
+    -o /server-monitoring ./...
 
 FROM alpine:3.20
 
@@ -23,7 +25,7 @@ RUN apk update && \
     addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
-COPY --from=builder --chown=appuser:appgroup /out/server-monitoring /app/server-monitoring
+COPY --from=builder --chown=appuser:appgroup /server-monitoring /app/server-monitoring
 
 # Use non-root user
 USER appuser
