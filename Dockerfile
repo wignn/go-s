@@ -1,4 +1,5 @@
-FROM golang:1.24-alpine AS builder
+
+FROM golang:1.21-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates tzdata
 
@@ -12,7 +13,7 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-w -s" -a -installsuffix cgo \
-    -o /out/server-monitoring .
+    -o /out/server-monitoring ./...
 
 FROM alpine:3.19
 
@@ -22,6 +23,7 @@ RUN apk --no-cache add ca-certificates wget && \
 
 COPY --from=builder --chown=appuser:appgroup /out/server-monitoring /app/server-monitoring
 
+# Use non-root user
 USER appuser
 
 WORKDIR /app
