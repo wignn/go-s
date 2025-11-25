@@ -1,8 +1,6 @@
 module server
 
-go 1.24.0
-
-toolchain go1.24.1
+go 1.24.9
 
 require (
 	github.com/gorilla/websocket v1.5.3

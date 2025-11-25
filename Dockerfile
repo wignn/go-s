@@ -1,5 +1,5 @@
 
-FROM golang:1.24-alpine AS builder
+FROM golang:1.21.9-alpine3.20 AS builder
 
 RUN apk add --no-cache git ca-certificates tzdata
 
@@ -15,9 +15,11 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-w -s" -a -installsuffix cgo \
     -o /out/server-monitoring ./...
 
-FROM alpine:3.19
+FROM alpine:3.20
 
-RUN apk --no-cache add ca-certificates wget && \
+RUN apk update && \
+    apk upgrade && \
+    apk --no-cache add ca-certificates wget && \
     addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
