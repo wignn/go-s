@@ -12,7 +12,7 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-w -s" -a -installsuffix cgo \
-    -o /out/server-monitoring ./...
+    -o /out/server-monitoring .
 
 FROM alpine:3.19
 
