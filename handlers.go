@@ -17,7 +17,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // monitorWSHandler - Real-time system monitoring with Elasticsearch logging
-func monitorWSHandler(w http.ResponseWriter, r *http.Request, esClient *ESClient) {
+func monitorWSHandler(w http.ResponseWriter, r *http.Request, esClient *ESClient, hub *Hub) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Monitor WebSocket upgrade error:", err)
@@ -27,6 +27,10 @@ func monitorWSHandler(w http.ResponseWriter, r *http.Request, esClient *ESClient
 
 	clientIP := r.RemoteAddr
 	log.Printf("Monitor client connected: %s", clientIP)
+
+	// register client to hub so it receives broadcasts
+	hub.register <- conn
+	defer func() { hub.unregister <- conn }()
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -72,13 +76,16 @@ func monitorWSHandler(w http.ResponseWriter, r *http.Request, esClient *ESClient
 				}
 			}(m)
 		}
+
+		// also broadcast metrics to all monitor clients via hub
+		hub.broadcast <- BroadcastMessage{Type: "metrics", Data: metrics, EventID: eventID()}
 	}
 
 	log.Printf("Monitor client disconnected: %s", clientIP)
 }
 
 // trackingWSHandler - Coding session tracking
-func trackingWSHandler(w http.ResponseWriter, r *http.Request, esClient *ESClient) {
+func trackingWSHandler(w http.ResponseWriter, r *http.Request, esClient *ESClient, hub *Hub) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Tracking WebSocket upgrade error:", err)
@@ -109,10 +116,10 @@ func trackingWSHandler(w http.ResponseWriter, r *http.Request, esClient *ESClien
 				session.Editor, session.Project, session.Language, session.DurationSeconds)
 		}
 
-		ack := map[string]interface{}{
-			"status":    "received",
-			"timestamp": time.Now().Format(time.RFC3339),
-		}
+		// broadcast session to all monitor clients
+		hub.broadcast <- BroadcastMessage{Type: "session", Data: session, EventID: eventID()}
+
+		ack := map[string]interface{}{"status": "received", "timestamp": time.Now().Format(time.RFC3339)}
 		ackJSON, _ := json.Marshal(ack)
 		if err := conn.WriteMessage(websocket.TextMessage, ackJSON); err != nil {
 			log.Printf("Failed to send ack to %s: %v", clientIP, err)
