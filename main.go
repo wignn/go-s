@@ -1,83 +1,57 @@
 package main
 
 import (
-        "encoding/json"
-        "log"
-        "net/http"
-        "time"
-
-        "github.com/gorilla/websocket"
-        "github.com/shirou/gopsutil/v3/cpu"
-        "github.com/shirou/gopsutil/v3/host"
-        "github.com/shirou/gopsutil/v3/mem"
+	"encoding/json"
+	"log"
+	"net/http"
 )
 
-var upgrader = websocket.Upgrader{
-        CheckOrigin: func(r *http.Request) bool { return true },
-}
-
 func main() {
-        http.HandleFunc("/ws", wsHandler)
+	esClient, err := NewESClient()
+	if err != nil {
+		log.Fatal("Failed to create Elasticsearch client:", err)
+	}
 
-        log.Println("WebSocket running at ws://localhost:8081/ws")
-        if err := http.ListenAndServe(":8081", nil); err != nil {
-                log.Fatal(err)
-        }
-}
+	http.HandleFunc("/ws/monitor", func(w http.ResponseWriter, r *http.Request) {
+		monitorWSHandler(w, r, esClient)
+	})
 
-func wsHandler(w http.ResponseWriter, r *http.Request) {
-        conn, err := upgrader.Upgrade(w, r, nil)
-        if err != nil {
-                log.Println("Upgrade error:", err)
-                return
-        }
-        defer conn.Close()
+	http.HandleFunc("/ws/track", func(w http.ResponseWriter, r *http.Request) {
+		trackingWSHandler(w, r, esClient)
+	})
 
-        for {
-                // CPU USAGE
-                cpuPercent, err := cpu.Percent(0, false)
-                if err != nil || len(cpuPercent) == 0 {
-                        continue
-                }
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":        "ok",
+			"elasticsearch": "connected",
+		})
+	})
 
-                // CPU INFO
-                cpuInfo, _ := cpu.Info() // includes model name, etc.
-                coreCount, _ := cpu.Counts(true)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"service": "Coding Tracker Server",
+			"endpoints": map[string]string{
+				"monitor": "ws://localhost:8080/ws/monitor",
+				"track":   "ws://localhost:8080/ws/track",
+				"health":  "http://localhost:8080/health",
+			},
+			"elasticsearch": "http://localhost:9200",
+			"kibana":        "http://localhost:5601",
+		})
+	})
 
-                // MEMORY INFO
-                memStat, _ := mem.VirtualMemory()
+	log.Println("Server running on :8080")
+	log.Println("Elasticsearch: http://localhost:9200")
+	log.Println("Kibana: http://localhost:5601")
+	log.Println("")
+	log.Println("WebSocket Endpoints:")
+	log.Println("  - System Monitor: ws://localhost:8080/ws/monitor")
+	log.Println("  - Coding Tracker: ws://localhost:8080/ws/track")
+	log.Println("")
 
-                // SYSTEM / OS INFO
-                hostInfo, _ := host.Info()
-
-                data := map[string]interface{}{
-                        // CPU
-                        "cpu":        cpuPercent[0],
-                        "cpuModel":   cpuInfo[0].ModelName,
-                        "cores":      coreCount,
-
-                        // MEMORY
-                        "memory":     memStat.UsedPercent,
-                        "totalMem":   memStat.Total / 1024 / 1024 / 1024, // GB
-                        "usedMem":    memStat.Used / 1024 / 1024 / 1024,  // GB
-
-                        // OS INFO
-                        "os":         hostInfo.OS,         // "windows", "linux", "darwin"
-                        "platform":   hostInfo.Platform,   // e.g. "Windows 10 Pro"
-                        "kernel":     hostInfo.KernelVersion,
-                        "arch":       hostInfo.KernelArch, // amd64 / arm64
-
-                        // UPTIME
-                        "uptime":     hostInfo.Uptime,     // seconds
-                }
-
-                jsonBytes, _ := json.Marshal(data)
-
-                if err := conn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
-                        log.Println("Write error:", err)
-                        return
-                }
-
-                time.Sleep(time.Second)
-        }
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatal(err)
+	}
 }

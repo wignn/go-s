@@ -1,0 +1,15 @@
+# Exclude common files that are not needed in the build context
+.git
+.gitignore
+node_modules
+vendor
+*.log
+*.tmp
+*.exe
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+build/
+**/*_test.go
