@@ -9,21 +9,23 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Hub untuk broadcast ke semua monitor clients
 type Hub struct {
 	clients    map[*websocket.Conn]bool
 	broadcast  chan interface{}
 	register   chan *websocket.Conn
 	unregister chan *websocket.Conn
 	mutex      sync.RWMutex
+	// weekly session records keyed by client identifier (e.g., client IP)
+	weeklyRecords map[string][]SessionRecord
 }
 
 func newHub() *Hub {
 	return &Hub{
-		clients:    make(map[*websocket.Conn]bool),
-		broadcast:  make(chan interface{}, 256),
-		register:   make(chan *websocket.Conn),
-		unregister: make(chan *websocket.Conn),
+		clients:       make(map[*websocket.Conn]bool),
+		broadcast:     make(chan interface{}, 256),
+		register:      make(chan *websocket.Conn),
+		unregister:    make(chan *websocket.Conn),
+		weeklyRecords: make(map[string][]SessionRecord),
 	}
 }
 
@@ -51,7 +53,7 @@ func (h *Hub) run() {
 			for client := range h.clients {
 				err := client.WriteMessage(websocket.TextMessage, jsonData)
 				if err != nil {
-					log.Printf("Broadcast error: %v", err)
+					log.Printf("❌ Broadcast error: %v", err)
 					client.Close()
 					delete(h.clients, client)
 				}
@@ -61,7 +63,31 @@ func (h *Hub) run() {
 	}
 }
 
-// helper to generate event id string
 func eventID() string {
 	return time.Now().Format("20060102150405")
+}
+
+// AddSessionRecord records a session duration for a client key and returns
+// the total seconds recorded for the last 7 days for that client.
+func (h *Hub) AddSessionRecord(clientKey string, duration int64) int64 {
+	now := time.Now()
+	sevenDaysAgo := now.Add(-7 * 24 * time.Hour)
+
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	recs := h.weeklyRecords[clientKey]
+	recs = append(recs, SessionRecord{Timestamp: now, Duration: duration})
+
+	var pruned []SessionRecord
+	var total int64
+	for _, r := range recs {
+		if r.Timestamp.After(sevenDaysAgo) {
+			pruned = append(pruned, r)
+			total += r.Duration
+		}
+	}
+
+	h.weeklyRecords[clientKey] = pruned
+	return total
 }
