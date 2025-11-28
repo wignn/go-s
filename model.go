@@ -1,6 +1,10 @@
 package main
 
-import "time"
+import (
+	"time"
+
+	"github.com/gorilla/websocket"
+)
 
 type CodingSession struct {
 	DurationSeconds int64   `json:"duration_seconds"`
@@ -11,8 +15,6 @@ type CodingSession struct {
 	Timestamp       string  `json:"timestamp"`
 	LinesOfCode     *int    `json:"lines_of_code,omitempty"`
 }
-
-// SystemMetrics struct for monitoring
 type SystemMetrics struct {
 	CPU       float64 `json:"cpu"`
 	CPUModel  string  `json:"cpu_model"`
@@ -44,4 +46,10 @@ type SessionRecord struct {
 type WeeklySummary struct {
 	Client      string `json:"client"`
 	WeekSeconds int64  `json:"week_seconds"`
+}
+
+// Subscription represents a client subscribing to hub broadcasts with an optional filter
+type Subscription struct {
+	Conn   *websocket.Conn
+	Filter string // empty = all, otherwise "metrics" or "session" or "weekly_summary"
 }

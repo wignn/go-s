@@ -26,7 +26,7 @@ func monitorWSHandler(w http.ResponseWriter, r *http.Request, esClient *ESClient
 	clientIP := r.RemoteAddr
 	log.Printf("Monitor client connected: %s", clientIP)
 
-	hub.register <- conn
+	hub.register <- Subscription{Conn: conn, Filter: ""}
 
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
@@ -163,7 +163,8 @@ func externalWSHandler(w http.ResponseWriter, r *http.Request, hub *Hub) {
 	clientIP := r.RemoteAddr
 	log.Printf("External client connected: %s", clientIP)
 
-	hub.register <- conn
+	filter := r.URL.Query().Get("type")
+	hub.register <- Subscription{Conn: conn, Filter: filter}
 	defer func() { hub.unregister <- conn }()
 
 	for {

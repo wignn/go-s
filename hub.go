@@ -10,9 +10,11 @@ import (
 )
 
 type Hub struct {
-	clients    map[*websocket.Conn]bool
-	broadcast  chan interface{}
-	register   chan *websocket.Conn
+	// clients maps connection -> filter ("" == all)
+	clients   map[*websocket.Conn]string
+	broadcast chan interface{}
+	// register accepts Subscription objects (Conn + Filter)
+	register   chan Subscription
 	unregister chan *websocket.Conn
 	mutex      sync.RWMutex
 	// weekly session records keyed by client identifier (e.g., client IP)
@@ -21,9 +23,9 @@ type Hub struct {
 
 func newHub() *Hub {
 	return &Hub{
-		clients:       make(map[*websocket.Conn]bool),
+		clients:       make(map[*websocket.Conn]string),
 		broadcast:     make(chan interface{}, 256),
-		register:      make(chan *websocket.Conn),
+		register:      make(chan Subscription),
 		unregister:    make(chan *websocket.Conn),
 		weeklyRecords: make(map[string][]SessionRecord),
 	}
@@ -32,11 +34,11 @@ func newHub() *Hub {
 func (h *Hub) run() {
 	for {
 		select {
-		case client := <-h.register:
+		case sub := <-h.register:
 			h.mutex.Lock()
-			h.clients[client] = true
+			h.clients[sub.Conn] = sub.Filter
 			h.mutex.Unlock()
-			log.Printf("Client registered. Total: %d", len(h.clients))
+			log.Printf("Client registered. Total: %d (filter=%s)", len(h.clients), sub.Filter)
 
 		case client := <-h.unregister:
 			h.mutex.Lock()
@@ -50,10 +52,22 @@ func (h *Hub) run() {
 		case message := <-h.broadcast:
 			h.mutex.RLock()
 			jsonData, _ := json.Marshal(message)
-			for client := range h.clients {
+			for client, filter := range h.clients {
+				// if client has a filter, only send matching types
+				if filter != "" {
+					if bm, ok := message.(BroadcastMessage); ok {
+						if bm.Type != filter {
+							continue
+						}
+					} else {
+						// message not a BroadcastMessage, skip
+						continue
+					}
+				}
+
 				err := client.WriteMessage(websocket.TextMessage, jsonData)
 				if err != nil {
-					log.Printf("❌ Broadcast error: %v", err)
+					log.Printf("Broadcast error: %v", err)
 					client.Close()
 					delete(h.clients, client)
 				}
