@@ -1,24 +1,42 @@
-# Multi-stage Dockerfile: build a static Linux binary and produce a minimal runtime image
-FROM golang:1.21-alpine AS builder
+
+FROM golang:1.24-alpine3.20 AS builder
+
+RUN apk update && apk upgrade
+
+RUN apk add --no-cache git ca-certificates tzdata
+
 WORKDIR /src
 
-# Disable CGO for a static binary, target linux/amd64 by default
-ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
-
-# Cache modules
 COPY go.mod go.sum ./
-RUN go env -w GOPROXY=https://proxy.golang.org,direct && \
-    go mod download
 
-# Copy rest of the source and build
+RUN go mod download && go mod verify
+
 COPY . .
-RUN go build -ldflags="-s -w" -o /app/server
 
-# Final image: minimal scratch image containing only the binary
-FROM scratch
-COPY --from=builder /app/server /server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-w -s" -a -installsuffix cgo \
+    -o /server-monitoring ./...
 
-# Port used by the application
+FROM alpine:3.20
+
+RUN apk update && \
+    apk upgrade && \
+    apk --no-cache add ca-certificates wget && \
+    addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup
+
+COPY --from=builder --chown=appuser:appgroup /server-monitoring /app/server-monitoring
+
+# Use non-root user
+USER appuser
+
+WORKDIR /app
+
+ENV PORT=8081
+
 EXPOSE 8081
 
-ENTRYPOINT ["/server"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost:8081/health || exit 1
+
+CMD ["./server-monitoring"]
